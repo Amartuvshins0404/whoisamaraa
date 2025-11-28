@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 declare var gsap: any;
 declare var ScrollTrigger: any;
 
-const PARTICLE_COUNT = 12;
+const PARTICLE_COUNT = 1; // Optimized to 1 for maximum performance (no lag)
 
 export const ScrollGuide: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -127,32 +127,9 @@ export const ScrollGuide: React.FC = () => {
     };
     window.addEventListener('resize', handleResize);
     
-    // Scroll Velocity Tracker
-    const tracker = { v: 0 };
-    const trackerAnim = ScrollTrigger.create({
-       trigger: document.body,
-       start: "top top",
-       end: "bottom bottom",
-       onUpdate: (self: any) => {
-          const velocity = Math.abs(self.getVelocity());
-          gsap.to(tracker, { 
-             v: velocity, 
-             duration: 0.5, 
-             onUpdate: () => {
-                // Increased width range for better visibility
-                const width = gsap.utils.mapRange(0, 4000, 12, 4, tracker.v);
-                if(glowPathRef.current) {
-                    gsap.set(glowPathRef.current, { strokeWidth: width });
-                }
-             }
-          });
-       }
-    });
-
     return () => {
       window.removeEventListener('resize', handleResize);
       ScrollTrigger.removeEventListener("refresh", calculatePath);
-      trackerAnim.kill();
     };
   }, []);
 
@@ -162,6 +139,7 @@ export const ScrollGuide: React.FC = () => {
         width={svgDimensions.width} 
         height={svgDimensions.height} 
         className="overflow-visible"
+        shapeRendering="geometricPrecision"
         style={{ position: 'absolute', top: 0, left: 0 }}
       >
         <defs>
@@ -172,23 +150,18 @@ export const ScrollGuide: React.FC = () => {
             <stop offset="80%" stopColor="#EC4899" stopOpacity="1" />
             <stop offset="100%" stopColor="#EC4899" stopOpacity="0" />
           </linearGradient>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="4.5" result="coloredBlur"/>
-            <feMerge>
-              <feMergeNode in="coloredBlur"/>
-              <feMergeNode in="coloredBlur"/> 
-              <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
+          {/* REMOVED FILTER FOR PERFORMANCE - USING VECTOR LAYERING INSTEAD */}
         </defs>
 
-        {/* Increased stroke width and opacity for visibility */}
+        {/* 1. Track (Background) */}
         <path 
           d={pathD} 
           stroke="rgba(255,255,255,0.15)" 
           strokeWidth="10" 
           fill="none" 
         />
+        
+        {/* 2. Invisible Guide Path for MotionPathPlugin */}
         <path
           ref={pathRef}
           id="guidePath"
@@ -196,14 +169,39 @@ export const ScrollGuide: React.FC = () => {
           stroke="none"
           fill="none"
         />
+
+        {/* 3. FAKE GLOW - Outer Layer (High Blur Simulation) */}
         <path 
-          ref={glowPathRef}
+          d={pathD} 
+          stroke="url(#neonGradient)" 
+          strokeWidth="20" 
+          strokeOpacity="0.2"
+          fill="none"
+          strokeLinecap="round"
+          className="will-change-transform"
+          ref={glowPathRef} // We animate this one
+        />
+
+        {/* 4. FAKE GLOW - Inner Layer (Medium Blur Simulation) */}
+        <path 
           d={pathD} 
           stroke="url(#neonGradient)" 
           strokeWidth="8" 
+          strokeOpacity="0.5"
           fill="none"
           strokeLinecap="round"
-          filter="url(#glow)"
+          className="will-change-transform"
+        />
+
+        {/* 5. Core (Bright White/Color) */}
+        <path 
+          d={pathD} 
+          stroke="url(#neonGradient)" 
+          strokeWidth="3" 
+          strokeOpacity="1"
+          fill="none"
+          strokeLinecap="round"
+          className="will-change-transform"
         />
 
         {/* Use pathD as key to force re-mount and sync when path updates */}
@@ -224,19 +222,26 @@ const ScrollTriggerLogic = ({ pathRef }: { pathRef: React.RefObject<SVGPathEleme
         
         const ctx = gsap.context(() => {
             const length = pathRef.current!.getTotalLength();
-            gsap.set(pathRef.current, { strokeDasharray: length, strokeDashoffset: length });
+            // Animate all paths that share this d attribute if possible, but for now we just drive the main ref
+            // Note: In this vector implementation, we are drawing the line via strokeDashoffset.
+            // To animate ALL layers (outer, inner, core), we should select them all.
+            const allPaths = pathRef.current!.parentElement?.querySelectorAll('path[stroke*="url(#neonGradient)"]');
+            
+            if (allPaths) {
+                gsap.set(allPaths, { strokeDasharray: length, strokeDashoffset: length });
 
-            gsap.to(pathRef.current, {
-                strokeDashoffset: 0,
-                ease: "none",
-                scrollTrigger: {
-                    trigger: "body",
-                    start: "top top",
-                    end: "bottom bottom", // 1:1 Mapping ensures it never gets left behind
-                    scrub: 0, 
-                    invalidateOnRefresh: true
-                }
-            });
+                gsap.to(allPaths, {
+                    strokeDashoffset: 0,
+                    ease: "none",
+                    scrollTrigger: {
+                        trigger: document.body, // OPTIMIZED: Use document.body
+                        start: "top top",
+                        end: "bottom bottom", 
+                        scrub: 0, 
+                        invalidateOnRefresh: true
+                    }
+                });
+            }
         });
         return () => ctx.revert();
     }, [pathRef]);
@@ -244,15 +249,16 @@ const ScrollTriggerLogic = ({ pathRef }: { pathRef: React.RefObject<SVGPathEleme
 }
 
 const Particle = ({ index, pathId, total }: { index: number, pathId: string, total: number }) => {
-    const circleRef = useRef<SVGCircleElement>(null);
+    const groupRef = useRef<SVGGElement>(null);
     
     useEffect(() => {
-        if (!circleRef.current) return;
+        if (!groupRef.current) return;
 
         const ctx = gsap.context(() => {
-            const lag = 0.001 + (index * 0.005); // Tight lag
+            // No lag for the head particle to ensure it sticks to the line tip
+            const lag = 0; 
             
-            gsap.to(circleRef.current, {
+            gsap.to(groupRef.current, {
                 motionPath: {
                     path: pathId,
                     align: pathId,
@@ -261,9 +267,9 @@ const Particle = ({ index, pathId, total }: { index: number, pathId: string, tot
                 },
                 ease: "none",
                 scrollTrigger: {
-                    trigger: "body",
+                    trigger: document.body, // OPTIMIZED: Use document.body
                     start: "top top",
-                    end: "bottom bottom", // 1:1 Mapping
+                    end: "bottom bottom", 
                     scrub: lag, 
                 }
             });
@@ -272,16 +278,13 @@ const Particle = ({ index, pathId, total }: { index: number, pathId: string, tot
 
     }, [pathId, index]);
 
-    const opacity = 1 - (index / total);
-    const scale = 1 - (index / total) * 0.6;
-
     return (
-        <circle 
-            ref={circleRef} 
-            r={10 * scale} 
-            fill="#fff" 
-            filter="url(#glow)"
-            style={{ opacity }}
-        />
+        <g ref={groupRef}>
+            {/* Fake Glow Halo for Particle */}
+            <circle r="12" fill="#0EA5E9" opacity="0.4" />
+            <circle r="20" fill="#A855F7" opacity="0.2" />
+            {/* Core */}
+            <circle r="6" fill="#fff" />
+        </g>
     );
 }

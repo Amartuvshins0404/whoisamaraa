@@ -26,14 +26,15 @@ export const Projects: React.FC = () => {
       const amountToScroll = totalWidth - windowWidth;
 
       // Background darken effect
+      // OPTIMIZATION: Use document.body directly instead of string selector to avoid lookup errors
       ScrollTrigger.create({
         trigger: triggerRef.current,
         start: "top center",
         end: "bottom center",
-        onEnter: () => gsap.to("body", { backgroundColor: "#000", duration: 1 }),
-        onLeave: () => gsap.to("body", { backgroundColor: "", clearProps: "backgroundColor", duration: 1 }),
-        onEnterBack: () => gsap.to("body", { backgroundColor: "#000", duration: 1 }),
-        onLeaveBack: () => gsap.to("body", { backgroundColor: "", clearProps: "backgroundColor", duration: 1 }),
+        onEnter: () => gsap.to(document.body, { backgroundColor: "#000", duration: 1 }),
+        onLeave: () => gsap.to(document.body, { backgroundColor: "", clearProps: "backgroundColor", duration: 1 }),
+        onEnterBack: () => gsap.to(document.body, { backgroundColor: "#000", duration: 1 }),
+        onLeaveBack: () => gsap.to(document.body, { backgroundColor: "", clearProps: "backgroundColor", duration: 1 }),
       });
 
       // Horizontal Scroll

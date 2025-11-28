@@ -1,3 +1,4 @@
+
 export const portfolioData = {
   general: {
     logoText: "Amaraa.",
